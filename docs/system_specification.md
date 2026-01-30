@@ -646,7 +646,209 @@ playwright install chromium
 
 ---
 
-## 9. 前提条件
+## 10. テスト計画
+
+### 10.1 テスト方針
+
+| 項目 | 内容 |
+| :--- | :--- |
+| **テストフレームワーク** | pytest |
+| **テストファイル配置** | `tests/` ディレクトリ |
+| **命名規則** | `test_*.py`（ファイル）、`test_*`（関数） |
+| **実行環境** | uv仮想環境（`uv run pytest`） |
+
+### 10.2 テストレベルと対象
+
+#### レベル1: ユニットテスト（単体テスト）
+
+外部サービスに依存しない純粋なロジックのテスト。モックを活用。
+
+| 対象モジュール | テスト内容 | 優先度 |
+| :--- | :--- | :--- |
+| `utils/text_parser.py` | メール本文解析、タグ抽出、バリデーション | 高 |
+| `utils/file_manager.py` | 履歴ファイル読み書き、画像クリーンアップ | 高 |
+| `utils/logger.py` | ログ出力、ファイルローテーション | 中 |
+| `models/item.py` | データモデル生成、Enum変換 | 中 |
+| `config.py` | パス解決、設定読み書き、バリデーション | 中 |
+
+#### レベル2: 統合テスト（モック使用）
+
+外部サービスをモックした状態での統合テスト。
+
+| 対象モジュール | テスト内容 | モック対象 |
+| :--- | :--- | :--- |
+| `services/gmail_service.py` | 認証フロー、メール取得、ラベル操作 | Gmail API |
+| `services/browser_service.py` | Chrome競合チェック、コンテキスト管理 | psutil, Playwright |
+| `services/auction_service.py` | 出品・再出品フロー | Playwright Page |
+| `services/shipping_service.py` | 発送登録、重複防止 | Playwright Page |
+
+#### レベル3: E2Eテスト（結合テスト）
+
+実際のブラウザを使用した結合テスト。**手動実行**または**ステージング環境**で実施。
+
+| テストシナリオ | 前提条件 | 確認項目 |
+| :--- | :--- | :--- |
+| 出品フロー全体 | Gmail認証済み、テスト用メール準備 | メール取得→解析→出品→ラベル付与 |
+| 発送フロー全体 | e飛伝ログイン済み、テスト用落札データ | 落札取得→登録→履歴保存 |
+| 再出品フロー全体 | テスト用未落札商品 | 未落札取得→再出品→ID更新 |
+| GUI操作 | アプリ起動 | ボタン操作、ログ表示、設定保存 |
+
+### 10.3 テストケース詳細
+
+#### `test_text_parser.py`
+
+```python
+# テストケース一覧
+def test_parse_listing_email_full_tags():
+    """全タグが含まれるメールの解析"""
+
+def test_parse_listing_email_required_only():
+    """必須タグのみのメール解析"""
+
+def test_parse_listing_email_missing_required():
+    """必須タグ欠損時のエラー処理"""
+
+def test_parse_listing_email_invalid_price():
+    """価格が不正な場合"""
+
+def test_parse_listing_email_long_name():
+    """商品名が65文字を超える場合の切り詰め"""
+
+def test_validate_listing_data_valid():
+    """有効なデータのバリデーション"""
+
+def test_validate_listing_data_missing_name():
+    """商品名欠損時のエラー"""
+
+def test_validate_listing_data_invalid_duration():
+    """オークション期間が範囲外の場合"""
+```
+
+#### `test_file_manager.py`
+
+```python
+def test_load_shipped_history_empty():
+    """履歴ファイルが存在しない場合"""
+
+def test_load_shipped_history_valid():
+    """有効な履歴ファイルの読み込み"""
+
+def test_save_shipped_id_new():
+    """新規IDの保存"""
+
+def test_save_shipped_id_append():
+    """既存履歴への追記"""
+
+def test_cleanup_old_history():
+    """古い履歴の削除"""
+
+def test_cleanup_orphan_images():
+    """孤児画像の削除"""
+```
+
+#### `test_config.py`
+
+```python
+def test_get_base_path_development():
+    """開発環境でのパス解決"""
+
+def test_load_settings_default():
+    """デフォルト設定の読み込み"""
+
+def test_save_settings():
+    """設定の保存"""
+
+def test_validate_settings_valid():
+    """有効な設定のバリデーション"""
+
+def test_validate_settings_invalid_path():
+    """無効なパスのバリデーション"""
+```
+
+#### `test_models.py`
+
+```python
+def test_listing_item_creation():
+    """ListingItemの生成"""
+
+def test_item_condition_from_string():
+    """文字列からItemConditionへの変換"""
+
+def test_shipping_record_to_dict():
+    """ShippingRecordの辞書変換"""
+```
+
+### 10.4 テスト実行方法
+
+```bash
+# uv環境でのテスト実行
+
+# 全テスト実行
+uv run pytest
+
+# 詳細出力で実行
+uv run pytest -v
+
+# 特定ファイルのみ
+uv run pytest tests/test_text_parser.py
+
+# 特定テスト関数のみ
+uv run pytest tests/test_text_parser.py::test_parse_listing_email_full_tags
+
+# カバレッジ計測
+uv run pytest --cov=src --cov-report=html
+
+# 最初の失敗で停止
+uv run pytest -x --tb=short
+```
+
+### 10.5 テストデータ
+
+#### テスト用メールサンプル (`tests/fixtures/sample_email.txt`)
+
+```text
+【商品名】UNIQLO ダウンジャケット 黒 Mサイズ
+【価格】3000
+【説明】2回着用のみ。目立つ傷なし。
+【状態】やや傷や汚れあり
+【カテゴリ】メンズファッション > ジャケット
+【期間】7
+```
+
+#### テスト用発送履歴 (`tests/fixtures/shipped_ids.json`)
+
+```json
+{
+  "shipped_items": [
+    {
+      "auction_id": "test123",
+      "shipped_at": "2026-01-29T10:00:00+09:00",
+      "tracking_number": "123456789012"
+    }
+  ]
+}
+```
+
+### 10.6 CI/CD連携（将来対応）
+
+| 項目 | 設定 |
+| :--- | :--- |
+| トリガー | プルリクエスト作成時、mainブランチへのプッシュ時 |
+| 実行環境 | GitHub Actions（ubuntu-latest, Python 3.12） |
+| 実行内容 | ユニットテスト、統合テスト（モック） |
+| 除外 | E2Eテスト（手動実行のみ） |
+
+### 10.7 品質基準
+
+| 指標 | 目標値 |
+| :--- | :--- |
+| ユニットテストカバレッジ | 80%以上 |
+| 統合テスト成功率 | 100% |
+| E2Eテスト成功率 | 95%以上（ネットワーク起因の失敗を許容） |
+
+---
+
+## 11. 前提条件
 
 *   クライアント側でGmail APIプロジェクトの作成と有効化が可能であること（サポート実施）。
 *   佐川急便「e飛伝Web」のアカウントが利用可能であること。
