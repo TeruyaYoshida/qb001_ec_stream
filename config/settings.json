@@ -1,5 +1,4 @@
 {
-  "browser_profile_path": "",
   "gmail_creds_path": "./config/credentials.json",
   "enable_reply_notification": false
 }

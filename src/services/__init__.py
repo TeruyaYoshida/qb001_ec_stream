@@ -1,6 +1,6 @@
 """サービスパッケージ"""
 from .browser_service import (
-    check_chrome_conflict,
+    launch_auth_browser,
     launch_browser_context,
     close_browser_context,
     with_retry,
@@ -29,7 +29,7 @@ from .shipping_service import (
 
 __all__ = [
     # browser_service
-    'check_chrome_conflict',
+    'launch_auth_browser',
     'launch_browser_context',
     'close_browser_context',
     'with_retry',

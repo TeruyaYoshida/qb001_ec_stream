@@ -93,6 +93,9 @@ $RECYCLE.BIN/
 # ログファイル（日次ローテーション）
 logs/*.json
 
+# Chrome Profile
+data/chrome_profile
+
 # 画像一時保存（処理後に削除される）
 data/images/*
 !data/images/.gitkeep

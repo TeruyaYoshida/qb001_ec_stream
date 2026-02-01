@@ -65,6 +65,27 @@ uv run playwright install chromium
 - **macOS**: `/Users/username/Library/Application Support/Google/Chrome`
 - **Windows**: `C:\Users\username\AppData\Local\Google\Chrome\User Data`
 
+#### 環境変数の設定
+
+佐川急便スマートクラブの認証情報を環境変数で設定します。
+
+`.env` ファイルをプロジェクトルートに作成:
+
+```bash
+# .env.exampleをコピー
+cp .env.example .env
+```
+
+`.env` ファイルを編集:
+
+```bash
+# スマートクラブ認証情報（法人用）
+SAGAWA_USER_ID=your_user_id_here
+SAGAWA_PASSWORD=your_password_here
+```
+
+**注意**: `.env` ファイルは `.gitignore` に含まれており、Gitにコミットされません。
+
 ### 3. アプリケーションの起動
 
 ```bash
@@ -245,5 +266,5 @@ uv run playwright install chromium
 
 ---
 
-**開発者**: QB Development Team  
+**開発者**: QB Development Team
 **最終更新**: 2026年1月30日

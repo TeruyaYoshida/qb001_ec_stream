@@ -10,22 +10,26 @@ from queue import Queue, Empty
 from typing import Callable, Optional
 
 import flet as ft
+from dotenv import load_dotenv
+
+# 環境変数を読み込む
+load_dotenv()
 
 # srcディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
-    load_settings,
     save_settings,
     validate_settings,
     ensure_directories,
     get_images_path,
+    get_browser_profile_path,
 )
 from models.item import ListingItem, ItemCondition, ShippingMethod
 from services.browser_service import (
-    check_chrome_conflict,
     launch_browser_context,
     close_browser_context,
+    launch_auth_browser,
 )
 from services.gmail_service import (
     authenticate_gmail,
@@ -57,7 +61,7 @@ class WorkerThread(threading.Thread):
     """
     業務処理を実行するワーカースレッド
     """
-    
+
     def __init__(
         self,
         task_func: Callable[[Queue], None],
@@ -74,7 +78,7 @@ class WorkerThread(threading.Thread):
         self.task_func = task_func
         self.log_queue = log_queue
         self.on_complete = on_complete
-    
+
     def run(self):
         try:
             self.task_func(self.log_queue)
@@ -91,60 +95,60 @@ class MainApp:
     """
     メインアプリケーションクラス
     """
-    
+
     def __init__(self, page: ft.Page):
         self.page = page
         self.log_queue: Queue = Queue()
         self.worker_thread: Optional[WorkerThread] = None
         self.is_processing = False
-        
+
         # ログエリア
         self.log_view: Optional[ft.ListView] = None
-        
+
         # ボタン
         self.listing_button: Optional[ft.ElevatedButton] = None
         self.shipping_button: Optional[ft.ElevatedButton] = None
         self.relisting_button: Optional[ft.ElevatedButton] = None
-        
+
         # ロガー
         self.logger = get_logger("main", self.log_queue)
-        
+
         # 初期化処理
         self._initialize()
-        
+
         # UIを構築
         self._build_ui()
-        
+
         # ログ更新タイマーを開始
         self._start_log_timer()
-    
+
     def _initialize(self) -> None:
         """初期化処理"""
         # 必要なディレクトリを確認・作成
         ensure_directories()
-        
+
         # 孤児画像を削除
         deleted_images = cleanup_orphan_images()
         if deleted_images > 0:
             self.logger.info(f"孤児画像を{deleted_images}件削除しました")
-        
+
         # 古い発送履歴を削除
         deleted_history = cleanup_old_history()
         if deleted_history > 0:
             self.logger.info(f"古い発送履歴を{deleted_history}件削除しました")
-        
+
         # 古いログファイルを削除
         deleted_logs = cleanup_old_logs()
         if deleted_logs > 0:
             self.logger.info(f"古いログファイルを{deleted_logs}件削除しました")
-    
+
     def _build_ui(self) -> None:
         """UIを構築"""
         self.page.title = "中古衣料品販売自動化システム"
         self.page.window.width = 800
         self.page.window.height = 600
         self.page.padding = 20
-        
+
         # ヘッダー
         header = ft.Container(
             content=ft.Text(
@@ -156,7 +160,7 @@ class MainApp:
             alignment=ft.alignment.center,
             padding=10,
         )
-        
+
         # アクションボタン群
         self.listing_button = ft.ElevatedButton(
             content=ft.Column(
@@ -177,7 +181,7 @@ class MainApp:
             height=140,
             on_click=self._on_listing_click,
         )
-        
+
         self.shipping_button = ft.ElevatedButton(
             content=ft.Column(
                 [
@@ -197,7 +201,7 @@ class MainApp:
             height=140,
             on_click=self._on_shipping_click,
         )
-        
+
         self.relisting_button = ft.ElevatedButton(
             content=ft.Column(
                 [
@@ -217,7 +221,7 @@ class MainApp:
             height=140,
             on_click=self._on_relisting_click,
         )
-        
+
         button_row = ft.Row(
             [
                 self.listing_button,
@@ -227,14 +231,14 @@ class MainApp:
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=30,
         )
-        
+
         # ログ表示エリア
         self.log_view = ft.ListView(
             expand=True,
             spacing=2,
             auto_scroll=True,
         )
-        
+
         log_container = ft.Container(
             content=self.log_view,
             border=ft.border.all(1, ft.Colors.GREY_400),
@@ -242,19 +246,19 @@ class MainApp:
             padding=10,
             expand=True,
         )
-        
+
         # 設定ボタン
         settings_button = ft.TextButton(
             text="設定",
             icon=ft.Icons.SETTINGS,
             on_click=self._on_settings_click,
         )
-        
+
         footer = ft.Row(
             [settings_button],
             alignment=ft.MainAxisAlignment.START,
         )
-        
+
         # レイアウト
         self.page.add(
             ft.Column(
@@ -274,26 +278,26 @@ class MainApp:
                 expand=True,
             )
         )
-        
+
         # 初期メッセージ
         self._add_log_message("INFO", "アプリケーションを起動しました")
-    
+
     def _start_log_timer(self) -> None:
         """ログ更新タイマーを開始"""
         def check_logs():
             self._process_log_queue()
             self.page.update()
-        
+
         # 100ミリ秒ごとにキューをチェック
         self.page.run_thread(self._log_polling_loop)
-    
+
     def _log_polling_loop(self) -> None:
         """ログポーリングループ"""
         import time
         while True:
             self._process_log_queue()
             time.sleep(0.1)
-    
+
     def _process_log_queue(self) -> None:
         """ログキューからメッセージを処理"""
         try:
@@ -304,12 +308,12 @@ class MainApp:
                 self._add_log_message(level, message)
         except Empty:
             pass
-    
+
     def _add_log_message(self, level: str, message: str) -> None:
         """ログメッセージを表示に追加"""
         if self.log_view is None:
             return
-        
+
         # レベルに応じた色を設定
         color = ft.Colors.BLACK
         if level == "ERROR" or level == "CRITICAL":
@@ -318,17 +322,17 @@ class MainApp:
             color = ft.Colors.ORANGE
         elif level == "DEBUG":
             color = ft.Colors.GREY
-        
+
         self.log_view.controls.append(
             ft.Text(message, color=color, size=12)
         )
-        
+
         # 最大500件まで保持
         if len(self.log_view.controls) > 500:
             self.log_view.controls = self.log_view.controls[-500:]
-        
+
         self.page.update()
-    
+
     def _set_buttons_enabled(self, enabled: bool) -> None:
         """ボタンの有効/無効を設定"""
         if self.listing_button:
@@ -338,39 +342,25 @@ class MainApp:
         if self.relisting_button:
             self.relisting_button.disabled = not enabled
         self.page.update()
-    
+
     def _on_processing_complete(self) -> None:
         """処理完了時のコールバック"""
         self.is_processing = False
         self._set_buttons_enabled(True)
         self._add_log_message("INFO", "処理が完了しました")
-    
+
     def _check_browser_available(self) -> bool:
         """ブラウザが利用可能かチェック"""
-        settings = load_settings()
-        profile_path = settings.get("browser_profile_path", "")
-        
-        if not profile_path:
-            self._show_error_dialog(
-                "ブラウザプロファイルパスが設定されていません。\n"
-                "設定画面からブラウザプロファイルパスを設定してください。"
-            )
-            return False
-        
-        is_available, message = check_chrome_conflict(profile_path)
-        
-        if not is_available:
-            self._show_error_dialog(message)
-            return False
-        
+        # 専用プロファイルを使用するため、常にTrue
+        # （競合チェックはPlaywrightの起動時に行う）
         return True
-    
+
     def _show_error_dialog(self, message: str) -> None:
         """エラーダイアログを表示"""
         def close_dialog(e):
             dialog.open = False
             self.page.update()
-        
+
         dialog = ft.AlertDialog(
             title=ft.Text("エラー"),
             content=ft.Text(message),
@@ -379,82 +369,81 @@ class MainApp:
             ],
             bgcolor=ft.Colors.RED_50,
         )
-        
+
         self.page.overlay.append(dialog)
         dialog.open = True
         self.page.update()
-    
+
     def _on_listing_click(self, e) -> None:
         """出品ボタンクリック時の処理"""
         if self.is_processing:
             return
-        
+
         if not self._check_browser_available():
             return
-        
+
         self.is_processing = True
         self._set_buttons_enabled(False)
         self._add_log_message("INFO", "出品処理を開始します...")
-        
+
         self.worker_thread = WorkerThread(
             self._listing_task,
             self.log_queue,
             self._on_processing_complete
         )
         self.worker_thread.start()
-    
+
     def _listing_task(self, log_queue: Queue) -> None:
         """出品処理タスク"""
         logger = get_logger("listing", log_queue)
         settings = load_settings()
         context = None
-        
+
         try:
             # Gmail認証
             logger.info("Gmail認証を行います...")
             authenticate_gmail()
             logger.info("Gmail認証が完了しました")
-            
+
             # メールを取得
             logger.info("出品依頼メールを取得中...")
             emails = get_listing_emails()
             logger.info(f"出品依頼メール: {len(emails)}件")
-            
+
             if not emails:
                 logger.info("処理対象のメールがありません")
                 return
-            
+
             # ブラウザを起動
             logger.info("ブラウザを起動中...")
-            profile_path = settings.get("browser_profile_path", "")
-            context = launch_browser_context(profile_path)
+            context = launch_browser_context()
             logger.info("ブラウザが起動しました")
-            
+
             success_count = 0
             skip_count = 0
-            
+
             for email_data in emails:
                 try:
                     message_id = email_data['id']
                     subject = email_data.get('subject', '')
                     body = email_data.get('body', '')
-                    
+
                     logger.info(f"処理中: {subject}")
-                    
+
                     # メール本文を解析
                     parsed_data = parse_listing_email(body)
                     is_valid, errors = validate_listing_data(parsed_data)
-                    
+
                     if not is_valid:
                         logger.warning(f"データ不備: {', '.join(errors)}")
                         mark_as_processed(message_id)
                         skip_count += 1
                         continue
-                    
+
                     # 添付画像をダウンロード
                     images_dir = get_images_path()
                     image_paths = download_attachments(message_id, images_dir)
-                    
+
                     # ListingItemを作成
                     item = ListingItem(
                         name=parsed_data['name'],
@@ -467,222 +456,232 @@ class MainApp:
                         image_paths=image_paths,
                         email_message_id=message_id,
                     )
-                    
+
                     # 出品実行
                     if list_new_item(context, item):
                         logger.info(f"出品完了: {item.name} (ID: {item.auction_id})")
-                        
+
                         # 完了通知メールを送信（設定有効時）
                         if item.auction_id:
                             send_reply(message_id, item.name, item.auction_id)
-                        
+
                         success_count += 1
                     else:
                         logger.warning(f"出品失敗: {item.name}")
                         skip_count += 1
-                    
+
                     # メールを処理済みにマーク
                     mark_as_processed(message_id)
-                    
+
                     # 画像を削除
                     cleanup_item_images(image_paths)
-                    
+
                 except Exception as e:
                     logger.error(f"処理エラー: {e}")
                     skip_count += 1
                     continue
-            
+
             logger.info(f"出品処理完了: 成功{success_count}件, スキップ{skip_count}件")
-            
+
         except Exception as e:
             logger.error(f"出品処理でエラーが発生しました: {e}")
-            
+
         finally:
             if context:
                 close_browser_context()
-    
+
     def _on_shipping_click(self, e) -> None:
         """発送ボタンクリック時の処理"""
         if self.is_processing:
             return
-        
+
         if not self._check_browser_available():
             return
-        
+
         self.is_processing = True
         self._set_buttons_enabled(False)
         self._add_log_message("INFO", "発送処理を開始します...")
-        
+
         self.worker_thread = WorkerThread(
             self._shipping_task,
             self.log_queue,
             self._on_processing_complete
         )
         self.worker_thread.start()
-    
+
     def _shipping_task(self, log_queue: Queue) -> None:
         """発送処理タスク"""
         logger = get_logger("shipping", log_queue)
         settings = load_settings()
         context = None
-        
+
         try:
             # ブラウザを起動
             logger.info("ブラウザを起動中...")
-            profile_path = settings.get("browser_profile_path", "")
-            context = launch_browser_context(profile_path)
+            context = launch_browser_context()
             logger.info("ブラウザが起動しました")
-            
+
             # 落札商品を取得
             logger.info("落札商品を取得中...")
             sold_items = get_sold_items(context)
             logger.info(f"発送対象: {len(sold_items)}件")
-            
+
             if not sold_items:
                 logger.info("発送対象の商品がありません")
                 return
-            
+
             success_count = 0
-            
+
             for item in sold_items:
                 try:
                     logger.info(f"発送登録中: {item.name}")
-                    
+
                     # 佐川e飛伝に登録
                     if register_shipping(context, item):
                         logger.info(f"発送登録完了: {item.name}")
                         success_count += 1
-                    
+
                 except Exception as e:
                     # 発送業務のエラーは即時停止
                     logger.critical(f"発送登録エラー: {e}")
                     logger.critical("発送処理を中断します。内容を確認してください。")
                     raise
-            
+
             logger.info(f"発送処理完了: 成功{success_count}件")
-            
+
         except Exception as e:
             logger.error(f"発送処理でエラーが発生しました: {e}")
-            
+
         finally:
             if context:
                 close_browser_context()
-    
+
     def _on_relisting_click(self, e) -> None:
         """再出品ボタンクリック時の処理"""
         if self.is_processing:
             return
-        
+
         if not self._check_browser_available():
             return
-        
+
         self.is_processing = True
         self._set_buttons_enabled(False)
         self._add_log_message("INFO", "再出品処理を開始します...")
-        
+
         self.worker_thread = WorkerThread(
             self._relisting_task,
             self.log_queue,
             self._on_processing_complete
         )
         self.worker_thread.start()
-    
+
     def _relisting_task(self, log_queue: Queue) -> None:
         """再出品処理タスク"""
         logger = get_logger("relisting", log_queue)
         settings = load_settings()
         context = None
-        
+
         try:
             # ブラウザを起動
             logger.info("ブラウザを起動中...")
-            profile_path = settings.get("browser_profile_path", "")
-            context = launch_browser_context(profile_path)
+
+            context = launch_browser_context()
             logger.info("ブラウザが起動しました")
-            
+
             # 未落札商品を取得して再出品
             logger.info("未落札商品を取得中...")
             unsold_items = get_unsold_items(context)
             logger.info(f"再出品対象: {len(unsold_items)}件")
-            
+
             if not unsold_items:
                 logger.info("再出品対象の商品がありません")
                 return
-            
+
             success_count = 0
             skip_count = 0
-            
+
             for item in unsold_items:
                 try:
                     logger.info(f"再出品中: {item.name}")
-                    
+
                     if relist_item(context, item):
                         logger.info(f"再出品完了: {item.name} (新ID: {item.auction_id})")
                         success_count += 1
                     else:
                         logger.warning(f"再出品失敗: {item.name}")
                         skip_count += 1
-                        
+
                 except Exception as e:
                     logger.error(f"再出品エラー ({item.name}): {e}")
                     skip_count += 1
                     continue
-            
+
             logger.info(f"再出品処理完了: 成功{success_count}件, スキップ{skip_count}件")
-            
+
         except Exception as e:
             logger.error(f"再出品処理でエラーが発生しました: {e}")
-            
+
         finally:
             if context:
                 close_browser_context()
-    
+
     def _on_settings_click(self, e) -> None:
         """設定ボタンクリック時の処理"""
         self._show_settings_dialog()
-    
+
     def _show_settings_dialog(self) -> None:
         """設定ダイアログを表示"""
         settings = load_settings()
-        
+
         # 入力フィールド
-        browser_path_field = ft.TextField(
-            label="ブラウザプロファイルパス",
-            value=settings.get("browser_profile_path", ""),
+        # ブラウザプロファイルパス（読み取り専用）
+        profile_path_display = ft.TextField(
+            label="ブラウザプロファイル（自動管理）",
+            value=str(get_browser_profile_path()),
+            read_only=True,
             width=500,
-            hint_text="例: /Users/xxx/Library/Application Support/Google/Chrome/Default",
         )
-        
+
+        # 認証設定ボタン
+        auth_browser_button = ft.ElevatedButton(
+            text="ブラウザ認証設定を開く",
+            icon=ft.Icons.LOGIN,
+            on_click=self._on_auth_browser_click,
+            style=ft.ButtonStyle(
+                color=ft.Colors.WHITE,
+                bgcolor=ft.Colors.BLUE,
+            ),
+        )
+
         gmail_creds_field = ft.TextField(
             label="Gmail認証情報パス",
             value=settings.get("gmail_creds_path", ""),
             width=500,
             hint_text="例: ./config/credentials.json",
         )
-        
+
         reply_switch = ft.Switch(
             label="出品完了時にメール返信を送信する",
             value=settings.get("enable_reply_notification", False),
         )
-        
+
         error_text = ft.Text("", color=ft.Colors.RED, visible=False)
-        
+
         def save_settings_click(e):
             new_settings = {
-                "browser_profile_path": browser_path_field.value,
                 "gmail_creds_path": gmail_creds_field.value,
                 "enable_reply_notification": reply_switch.value,
             }
-            
+
             # バリデーション
             is_valid, errors = validate_settings(new_settings)
-            
+
             if not is_valid:
                 error_text.value = "\n".join(errors)
                 error_text.visible = True
                 self.page.update()
                 return
-            
+
             # 保存
             if save_settings(new_settings):
                 dialog.open = False
@@ -690,19 +689,20 @@ class MainApp:
             else:
                 error_text.value = "設定の保存に失敗しました"
                 error_text.visible = True
-            
+
             self.page.update()
-        
+
         def close_dialog(e):
             dialog.open = False
             self.page.update()
-        
+
         dialog = ft.AlertDialog(
             title=ft.Text("設定"),
             content=ft.Container(
                 content=ft.Column(
                     [
-                        browser_path_field,
+                        profile_path_display,
+                        auth_browser_button,
                         gmail_creds_field,
                         reply_switch,
                         error_text,
@@ -718,10 +718,38 @@ class MainApp:
                 ft.ElevatedButton("保存", on_click=save_settings_click),
             ],
         )
-        
+
         self.page.overlay.append(dialog)
         dialog.open = True
         self.page.update()
+
+
+    def _on_auth_browser_click(self, e):
+        """認証設定ボタンのクリックハンドラ"""
+        # ダイアログを閉じる
+        if self.page.overlay:
+            self.page.overlay[0].open = False
+            self.page.update()
+
+        # ボタンを無効化
+        self._set_buttons_enabled(False)
+        self._add_log_message("INFO", "認証設定ブラウザを起動中...")
+
+        # 別スレッドで実行（UIをブロックしない）
+        threading.Thread(
+            target=self._run_auth_browser,
+            daemon=True
+        ).start()
+
+    def _run_auth_browser(self):
+        """認証設定ブラウザを実行（別スレッド）"""
+        try:
+            launch_auth_browser()  # ブラウザが閉じられるまでブロック
+            self._add_log_message("INFO", "認証設定が完了しました")
+        except Exception as e:
+            self._add_log_message("ERROR", f"認証設定エラー: {e}")
+        finally:
+            self._set_buttons_enabled(True)
 
 
 def main(page: ft.Page):

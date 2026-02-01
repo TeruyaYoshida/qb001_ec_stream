@@ -16,6 +16,7 @@ from config import (
     save_settings,
     validate_settings,
     ensure_directories,
+    get_browser_profile_path,
 )
 
 
@@ -47,6 +48,13 @@ class TestPathFunctions:
 
         assert "logs" in str(logs_path)
 
+    def test_get_browser_profile_path(self):
+        """ブラウザプロファイルパスの取得"""
+        profile_path = get_browser_profile_path()
+
+        assert "chrome_profile" in str(profile_path)
+        assert "data" in str(profile_path)
+
 
 class TestLoadSettings:
     """load_settings関数のテスト"""
@@ -60,7 +68,6 @@ class TestLoadSettings:
 
         settings = load_settings()
 
-        assert "browser_profile_path" in settings
         assert "gmail_creds_path" in settings
         assert "enable_reply_notification" in settings
         assert settings["enable_reply_notification"] is False
@@ -120,8 +127,8 @@ class TestValidateSettings:
 
     def test_validate_empty_paths(self):
         """空のパスは有効（未設定として許可）"""
+        """空のパスは有効（未設定として許可）"""
         settings = {
-            "browser_profile_path": "",
             "gmail_creds_path": "",
         }
 
@@ -129,37 +136,13 @@ class TestValidateSettings:
 
         # 空のパスはエラーにならない
         assert is_valid is True
+        assert not errors
 
-    def test_validate_invalid_browser_path(self, tmp_path):
-        """存在しないブラウザパス"""
-        settings = {
-            "browser_profile_path": "/nonexistent/path",
-            "gmail_creds_path": "",
-        }
 
-        is_valid, errors = validate_settings(settings)
-
-        assert is_valid is False
-        assert any("ブラウザプロファイルパス" in e for e in errors)
-
-    def test_validate_valid_browser_path(self, tmp_path):
-        """有効なブラウザパス"""
-        browser_dir = tmp_path / "chrome_profile"
-        browser_dir.mkdir()
-
-        settings = {
-            "browser_profile_path": str(browser_dir),
-            "gmail_creds_path": "",
-        }
-
-        is_valid, errors = validate_settings(settings)
-
-        assert is_valid is True
 
     def test_validate_invalid_gmail_creds(self, tmp_path):
         """存在しないGmail認証情報ファイル"""
         settings = {
-            "browser_profile_path": "",
             "gmail_creds_path": "/nonexistent/credentials.json",
         }
 
@@ -174,7 +157,6 @@ class TestValidateSettings:
         creds_file.write_text("invalid json")
 
         settings = {
-            "browser_profile_path": "",
             "gmail_creds_path": str(creds_file),
         }
 
@@ -189,7 +171,6 @@ class TestValidateSettings:
         creds_file.write_text(json.dumps({"other_key": "value"}))
 
         settings = {
-            "browser_profile_path": "",
             "gmail_creds_path": str(creds_file),
         }
 

@@ -48,22 +48,26 @@ def get_history_path() -> Path:
     return get_data_path() / "history"
 
 
+def get_browser_profile_path() -> Path:
+    """システム専用Chromeプロファイルのパスを取得"""
+    return get_data_path() / "chrome_profile"
+
+
 def load_settings() -> Dict[str, Any]:
     """
     設定ファイルを読み込む。
     ファイルが存在しない場合はデフォルト設定を返す。
     """
     settings_path = get_config_path() / "settings.json"
-    
+
     default_settings = {
-        "browser_profile_path": "",
         "gmail_creds_path": str(get_config_path() / "credentials.json"),
         "enable_reply_notification": False
     }
-    
+
     if not settings_path.exists():
         return default_settings
-    
+
     try:
         with open(settings_path, 'r', encoding='utf-8') as f:
             loaded_settings = json.load(f)
@@ -76,19 +80,19 @@ def load_settings() -> Dict[str, Any]:
 def save_settings(settings: Dict[str, Any]) -> bool:
     """
     設定ファイルを保存する。
-    
+
     Args:
         settings: 保存する設定辞書
-        
+
     Returns:
         成功時True、失敗時False
     """
     settings_path = get_config_path() / "settings.json"
-    
+
     try:
         # 設定ディレクトリが存在しない場合は作成
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(settings_path, 'w', encoding='utf-8') as f:
             json.dump(settings, f, ensure_ascii=False, indent=2)
         return True
@@ -99,23 +103,15 @@ def save_settings(settings: Dict[str, Any]) -> bool:
 def validate_settings(settings: Dict[str, Any]) -> tuple[bool, list[str]]:
     """
     設定値のバリデーションを行う。
-    
+
     Args:
         settings: 検証する設定辞書
-        
+
     Returns:
         (有効かどうか, エラーメッセージのリスト)
     """
     errors = []
-    
-    # ブラウザプロファイルパスの検証
-    browser_path = settings.get("browser_profile_path", "")
-    if browser_path:
-        if not Path(browser_path).exists():
-            errors.append(f"ブラウザプロファイルパスが存在しません: {browser_path}")
-        elif not Path(browser_path).is_dir():
-            errors.append(f"ブラウザプロファイルパスはディレクトリではありません: {browser_path}")
-    
+
     # Gmail認証情報パスの検証
     gmail_path = settings.get("gmail_creds_path", "")
     if gmail_path:
@@ -133,7 +129,7 @@ def validate_settings(settings: Dict[str, Any]) -> tuple[bool, list[str]]:
                 errors.append("Gmail認証情報ファイルが有効なJSONではありません")
             except IOError as e:
                 errors.append(f"Gmail認証情報ファイルの読み込みエラー: {e}")
-    
+
     return len(errors) == 0, errors
 
 
@@ -149,6 +145,6 @@ def ensure_directories() -> None:
         get_history_path(),
         get_logs_path(),
     ]
-    
+
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
